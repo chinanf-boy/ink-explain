@@ -14,14 +14,15 @@ Explanation
 
 ---
 
-本次例子-[官方](https://github.com/vadimdemedes/ink#usage)
+### 本次例子
+
+-[官方](https://github.com/vadimdemedes/ink#usage)
 
 <details>
 
 ```jsx
 const {h, render, Component, Text} = require('ink');
 
-// h -> 用来替换 JSX
 class Counter extends Component {
 	constructor() {
 		super();
@@ -32,15 +33,27 @@ class Counter extends Component {
 	}
 
 	render() {
-		return (
-			<Text green>
-				{this.state.i} tests passed
-			</Text>
-		);
+		return h('div', {}, [
+			h('div', {}, []),
+			h('div', {}, [
+				h(Text, {blue: true}, '~/Projects/ink ')
+			]),
+			h('div', {}, [
+				h(Text, {red: true}, 'λ '),
+				h(Text, {green: true}, 'node '),
+				h(Text, {}, 'media/example')
+			]),
+			h(Text, {green: true}, `${this.state.i} tests passed`)
+		]);
 	}
 
 	componentDidMount() {
+		console.log()
 		this.timer = setInterval(() => {
+			if (this.state.i === 50) {
+				process.exit(0); // eslint-disable-line unicorn/no-process-exit
+			}
+
 			this.setState({
 				i: this.state.i + 1
 			});
@@ -52,8 +65,8 @@ class Counter extends Component {
 	}
 }
 
-// <Counter /> -> h(Counter)
-render(<Counter/>);
+render(h(Counter));
+
 ```
 
 <p align="center">
@@ -69,13 +82,169 @@ render(<Counter/>);
 
 ---
 
-可以看到例子运行, `render(<Counter/>);` 首先触发
+可以看到例子运行, `render(h(Counter));` 首先触发 `h`
+
+---
+
+## 0. h
+
+`ink/lib/h.js`
+
+> 将-`Component`/`"div/span/br"`-变成-`Vnode`
+
+<details>
+
+``` js
+'use strict';
+
+const flatten = require('lodash.flattendeep');
+const VNode = require('./vnode');
+
+// class 其实也是 函数的一种
+module.exports = (component, props, ...children) => {
+	if (typeof component !== 'function' && typeof component !== 'string') {
+		throw new TypeError(`Expected component to be a function, but received ${typeof component}. You may have forgotten to export a component.`);
+	}
+
+	props = props || {};
+
+	const readyChildren = [];
+
+	// 孩子 
+	if (children.length > 0) {
+		props.children = children;
+	}
+
+	// 对那些 h(Component) / 其他类型 孩子改造
+	flatten(props.children).forEach(child => {
+		if (typeof child === 'number') {
+			// 数字 孩子
+			child = String(child);
+		}
+
+		if (typeof child === 'boolean' || child === null) {
+			// 异类孩子
+			child = '';
+		}
+
+		if (typeof child === 'string') {
+			// 字符串孩子
+			if (typeof readyChildren[readyChildren.length - 1] === 'string') {
+				// 最后孩子是否同样是 字符串
+				// 合并
+				readyChildren[readyChildren.length - 1] += child;
+			} else {
+				readyChildren.push(child);
+			}
+		} else {
+			// 剩下的就是 h(Component) -> new VNode 孩子
+			readyChildren.push(child);
+		}
+		// 不管怎么样都放进 readyChildren
+	});
+
+	props.children = readyChildren;
+// 把一系列的 选项打入 props 直接交给 VNode
+	return new VNode(component, props);
+};
+
+```
+
+- VNode
+
+> 1. 有两种组件 div/span/br string 类型 | 通过 extend Component 类型
+
+> 2. VNode类可以说扩展-Component类, 也就是只是其中一个 VNode.component = component 属性
+
+``` js
+const getComponent = name => {
+	switch (name) {
+		case 'div': return Div; // 相当于 孩子 + 换行
+		case 'span': return Span; // 相当于 孩子
+		case 'br': return Br; // // 相当于 换行
+		default: return null;
+	}
+};
+
+class VNode {
+	constructor(component, props = {}) {
+		
+		const ref = props.ref;
+		delete props.ref;
+
+		// 组件类
+		this.component = typeof component === 'string' ? getComponent(component) : component;
+		// 分析选项
+		this._props = transformProps(props);
+		this._children = [];
+		// 指定的组件
+		this.ref = ref;
+		this.instance = null;
+	}
+
+	// 定义 - 属性规则
+	get props() {
+		return this._props;
+	}
+
+	set props(nextProps) {
+		this._props = transformProps(nextProps);
+		return this._props;
+	}
+
+	get children() {
+		return this._children;
+	}
+
+	set children(nextChildren) {
+		this._children = flatten(arrify(nextChildren));
+		return this._children;
+	}
+
+	// 在一定时候, 需要将  Component 类 实例化
+	createInstance(props) {
+		// 只会将 继承 Component 的类实例化
+		if (isClassComponent(this.component)) {
+			this.instance = new this.component(props, {});
+		}
+	}
+}
+
+if (process.env.NODE_ENV !== 'production') {
+	// 确定一个 不可变类型
+	VNode.prototype.$$typeof = Symbol.for('react.element');
+}
+
+module.exports = VNode;
+
+```
+
+---
+
+通过 `h` 和 `VNode` 的 洗刷
+
+例子🌰中的 `Counter` -> `VNode`
+
+要⚠️注意的是 `Coumter.render` 里面的 渲染, 并没有触发。
+
+VNode(Counter) 只是一个很原型的 虚拟节点「VNode」, 没有孩子
+
+👇下一步, 我们把 统一好的`VNode` -> [`render(VNode)`](#1-render)
+
+> 但是在 `render` 中, 主要说得是, 接管终端 输出/ 输入
+
+</details>
+
+
+---
 
 ## 1. render
 
 `ink/index.js`
 
 代码 30-119
+
+> 接管终端 输出/ 输入, 和重覆盖
 
 <details>
 
@@ -192,15 +361,17 @@ exports.render = (tree, options) => {
 
 - [build](#2-build)
 
-> 用来建立新的-视图树`Tree`
+> 用来建立新的-视图树`Tree`, 也就`❤️最重要❤️`的
 
 - [renderToString](#4-rendertostring)
 
-> 把 视图树`Tree` 变成 `String`， 给 `log-update` 使用
+> 把 视图树`VNode 类` 变成 `String`， 给 `log-update` 使用
 
 > `log(renderToString(nextTree));`
 
 </details>
+
+---
 
 ## 2. build
 
@@ -219,6 +390,12 @@ const build = (nextTree, prevTree, onUpdate = noop, context = {}) => {
 };
 ```
 
+那么到了这里-`diff`-「有关 比较新旧树 触发生命周期钩子, 改变-虚拟树」
+
+> 但在这例子中, 仅仅是自己与自己的状态比较, [`有关setState 的触发机制`](#5-setstate)
+
+---
+
 ---
 
 ## 3. diff
@@ -230,6 +407,8 @@ const build = (nextTree, prevTree, onUpdate = noop, context = {}) => {
 > 对比-视图树, 返回新或者没有变的树🌲
 
 <details>
+
+>⚠️ onUpdate 也跟进来了, 这是有关[setState 触发重覆盖的问题](#5-setstate)
 
 ``` js
 const diff = (prevNode, nextNode, onUpdate, context) => {
@@ -268,18 +447,21 @@ const diff = (prevNode, nextNode, onUpdate, context) => {
 	}
 
 	if (isPrev && prevNode.component !== nextNode.component) { // 直接对比 Component 类
-		unmount(prevNode); // 移除旧
-		mount(nextNode, context, onUpdate); // 加载新的
+        unmount(prevNode); 
+        // 移除旧, 触发 componentWillUnmount
+        mount(nextNode, context, onUpdate); 
+        // 加载新的 注意⚠️ onUpdate 是覆盖-终端输出的关键
+        // 触发 componentWillMount
 		isPrev = false;
     } 
     
-// 如果到这里 isPrev 还是 == true, 说明判断还没有结束
-//⏰ 下面这部分, 就开始细分, 更新, 和 组件事件钩子的运行
+// 如果到这里 isPrev 还是 == true, 说明自己和自己,判断还没有结束
+//⏰ 下面这部分, 就开始细分更新, 和 剩下组件事件钩子的运行
 
     // 对比 Component props
     const shouldUpdate = isPrev && shouldComponentUpdate(prevNode, getProps(nextNode), getNextState(prevNode));
 
-    // 为什么是 prevNode???
+// 为什么是 prevNode, 因为还是 isPrev , 这里就自己和自己比较的开始了
 
     // 旧树的孩子
 	const prevChildren = isPrev ? [].slice.call(prevNode.children) : [];
@@ -289,7 +471,7 @@ const diff = (prevNode, nextNode, onUpdate, context) => {
 	}
 
 	if (shouldUpdate) { // 应该重新渲染
-		rerender(prevNode, context);
+		rerender(prevNode, context); // ???
 	}
 
     // 下一个树孩子
@@ -310,21 +492,306 @@ const diff = (prevNode, nextNode, onUpdate, context) => {
 		prevNode.children = reconciledChildren;
 
 		if (shouldUpdate) {
-            // 应该更新
+            // 触发更新-旧树
 			componentDidUpdate(prevNode);
 		}
 	} else {
         // 新树
-		nextNode.children = reconciledChildren;
+        nextNode.children = reconciledChildren;
+         // 触发更新
 		componentDidMount(nextNode);
-	}
+    }
+    // 反正 componentDidMount 是一定要触发的
 
 	return isPrev ? prevNode : nextNode;
 };
 ```
 
+#### 3.1 `mount`
+
+> 1. 将 vnode.component 实例化 vnode.instance
+
+> 2. 触发 载入前钩子-componentWillMount
+
+> 3. _render()触发->生成孩子虚拟树
+
+``` js
+const mount = (vnode, context, onUpdate) => {
+	const props = getProps(·);
+	checkPropTypes(vnode.component, props);
+
+	if (isClassComponent(vnode.component)) {
+// 1. 继承Component的类
+		vnode.createInstance(props);
+		vnode.instance._onUpdate = onUpdate;
+
+		// context 是 一个全局上下文
+		vnode.instance.context = Object.assign(context, vnode.instance.getChildContext());
+		// 2.
+		vnode.instance.componentWillMount();
+		// 3.
+		vnode.children = vnode.instance._render();
+	} else {
+// 关于 孩子 换行之类
+// div/span/br
+		vnode.children = vnode.component(props, context);
+	}
+};
+```
+
+#### 3.2 `unmount`
+
+> 1. 触发 卸载前-componentWillUnmount
+
+> 2. 清空 实例
+
+> 3. 全部孩子去掉
+
+> 4. 去掉指定组件
+
+``` js
+const unmount = vnode => {
+	if (isClassComponent(vnode.component)) {
+		componentWillUnmount(vnode);
+		vnode.instance = null;
+	}
+
+	vnode.children.forEach(childVNode => {
+		diff(childVNode, null);
+	});
+
+// 去掉全局变量
+	if (isClassComponent(vnode.component) && vnode.ref) {
+		vnode.ref(null);
+	}
+};
+```
+
+---
+
+🧠 在`diff函数`我们需要什么? `return isPrev ? prevNode : nextNode;`
+
+那么 我们需要一个改造好的 虚拟树。
+
+这么一堆的判断, 生命周期钩子触发, Instance化, 但我们返回的也就是-VNode类, 
+
+只是 `VNode.instance` 不再是 `null`, 
+
+`VNode.children` 也 `_render()触发` 回来 变成 `VNode`树
+
 
 </details>
 
 
+---
+
 ## 4. renderToString
+
+> 把 `Vnode树` 变成 `String`
+
+<details>
+
+`/ink/lib/render-to-string.js`
+
+``` js
+'use strict';
+
+const StringComponent = require('./string-component');
+
+const renderToString = vnode => {
+	if (!vnode) {
+		return '';
+	}
+
+	if (typeof vnode === 'string') {
+		return vnode; // children 返回
+	}
+
+	if (Array.isArray(vnode)) { // 数组VNode
+		return vnode
+			.map(renderToString)
+			.join('');
+	}
+
+	if (vnode.instance instanceof StringComponent) {
+
+// 真正停止的递归终止条件, 是 继承StringComponent
+// 也就是 Text, 作者定义的字符串组件
+// 可以看到本项目例子中 Text, 
+
+		// 我们上面 3.1 mount 就说了 vnode.children 是 vnode.instance._render() 赋予的
+		// 4.1 StringComponent children 如何是字符串
+		const children = renderToString(vnode.children);
+		// 4.2  染色字符串
+		return vnode.instance.renderString(children); 
+	}
+
+	// 递归-孩子
+	return renderToString(vnode.children);
+};
+
+module.exports = renderToString;
+
+```
+
+
+#### 4.1 `StringComponent children 如何是字符串`
+
+`ink/lib/string-component.js`
+
+``` js
+class StringComponent extends Component {
+	render() {
+		return this.props.children;
+	}
+}
+```
+
+> 可以看到[本项目例子中 Text](#本次例子)
+
+> h(Text, {blue: true}, '~/Projects/ink ') =>
+
+> '~/Projects/ink ' == props.children =>
+
+> vnode.instance._render() 触发 StringComponent.render() =>
+
+> vnode.children = this.props.children == '~/Projects/ink '
+
+---
+
+#### 4.2 `染色字符串`
+
+`ink/lib/components/text.js`
+
+代码 22-36
+
+``` js
+// 没错, 为什么可以设置颜色, 就是 chalk 输出颜色库
+// h(Text, {blue: true}, '~/Projects/ink ')
+
+class Text extends StringComponent {
+	renderString(children) {
+		Object.keys(this.props).forEach(method => {
+			if (this.props[method]) {
+				if (methods.includes(method)) {
+					children = chalk[method].apply(chalk, arrify(this.props[method]))(children);
+				} else if (typeof chalk[method] === 'function') {
+					children = chalk[method](children);
+				}
+			}
+		});
+
+		return children; // 染好的字符串
+	}
+}
+```
+
+</details>
+
+
+---
+
+## 5. setState
+
+> Component 组件中改变 状态的函数, 却也是触发, 重覆盖的函数
+
+怎么做到, 点击⬇️
+
+<details>
+
+让我们回到 Component 类的定义
+
+`ink/lib/component.js`
+
+代码 15-27
+
+``` js
+	setState(nextState, callback) {
+		if (typeof nextState === 'function') {
+			nextState = nextState(this.state, this.props);
+		}
+
+		this._pendingState = Object.assign({}, this._pendingState || this.state, nextState);
+
+		if (typeof callback === 'function') {
+			this._stateUpdateCallbacks.push(callback);
+		}
+
+		this._enqueueUpdate(); // 《=== 触发
+	}
+```
+
+代码 70-72
+
+``` js
+	_enqueueUpdate() {
+		enqueueUpdate(this._onUpdate); 
+		// 把 组件的 _onUpdate 放进去
+
+//🤔 _onUpdate 怎么来的, 其实本质就是
+// `ink/index.js` 61-67
+
+	// const onUpdate = () => {
+	// 	if (isUnmounted) {
+	// 		return;
+	// 	}
+
+	// 	update();
+	// };
+
+// 在做比较-diff-函数时就一直在变量中流传
+// diff(prevTree, nextTree, onUpdate, context);
+	}
+
+```
+
+代码 3
+
+``` js
+const {enqueueUpdate} = require('./render-queue');
+
+```
+
+`ink/lib/render-queue.js`
+
+``` js
+'use strict';
+
+const options = require('./options');
+
+const queue = [];
+
+const rerender = () => {
+	while (queue.length > 0) {
+		const callback = queue.pop();
+		callback();
+	}
+};
+
+exports.rerender = rerender;
+
+exports.enqueueUpdate = callback => {
+	queue.push(callback);
+	options.deferRendering(rerender); 
+	// <=== 函数在下一次事件轮询调用
+	// 也就是 onUpdate 的调用
+};
+
+```
+
+`ink/lib/options.js`
+
+``` js
+'use strict';
+
+module.exports = {
+	deferRendering: process.nextTick //<===
+};
+
+```
+
+- [`process.nextTick`](http://nodejs.cn/api/process.html#process_process_nexttick_callback_args)
+
+> 一旦当前事件轮询队列的任务全部完成，在next tick队列中的所有callbacks会被依次调用。
+
+</details>
