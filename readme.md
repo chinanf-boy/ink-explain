@@ -600,14 +600,17 @@ const StringComponent = require('./string-component');
 
 const renderToString = vnode => {
 	if (!vnode) {
+// 1.
 		return '';
 	}
 
 	if (typeof vnode === 'string') {
+// 2.
 		return vnode; // children 返回
 	}
 
-	if (Array.isArray(vnode)) { // 数组VNode
+	if (Array.isArray(vnode)) { // 数组VNode, h(Component, props, children)
+	// children 都是数组, 所有通过这样 join('') 组合
 		return vnode
 			.map(renderToString)
 			.join('');
@@ -615,7 +618,11 @@ const renderToString = vnode => {
 
 	if (vnode.instance instanceof StringComponent) {
 
-// 真正停止的递归终止条件, 是 继承StringComponent
+// 真正停止的递归终止条件, 
+// 1. ''
+// 2. String
+// 3. 是 继承 StringComponent Text
+
 // 也就是 Text, 作者定义的字符串组件
 // 可以看到本项目例子中 Text, 
 
